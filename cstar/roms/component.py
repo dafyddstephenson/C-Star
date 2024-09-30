@@ -867,6 +867,19 @@ class ROMSComponent(Component):
                     F.rename(output_dir / "PARTITIONED" / F.name)
 
 
+def restart(self, new_start_date: datetime):
+    # TODO: # 1. Go through self.additional_code.source_mods and find ocean_vars.opt
+    #        2.  Parse OV.opt to output_period_rst, generate list of restart file dates
+    #        3. Check whether new_start_date corresponds to a restart file
+    #        4. Raise ValueError:
+    #        "new start date does not correspond to a restart file... nearest valid start date is"
+    #        5. Otherwise return a Component with:
+    #              i. initial condition changed to rst file name
+    #        6. Additional: need to check if running again with a different time step in the same
+    #           dir works
+    pass
+
+
 class ROMSDiscretization(Discretization):
     """
     An implementation of the Discretization class for ROMS.
