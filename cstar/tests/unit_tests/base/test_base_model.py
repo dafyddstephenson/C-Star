@@ -8,19 +8,10 @@ from cstar.base.base_model import BaseModel
 ################################################################################
 
 
-# Define a mock subclass to implement the abstract methods
 class MockBaseModel(BaseModel):
     @property
     def expected_env_var(self):
         return "TEST_ROOT"
-
-    @property
-    def checkout_hash(self):
-        """Simulate the checkout_hash property of BaseModel.
-
-        This is usually determined dynamically from BaseModel.checkout_target
-        """
-        return "test123"
 
     @property
     def default_source_repo(self):
@@ -41,23 +32,54 @@ class MockBaseModel(BaseModel):
 
 @pytest.fixture
 def generic_base_model():
-    return MockBaseModel()
+    # Correctly patch the imported _get_hash_from_checkout_target in the BaseModel's module
+    with mock.patch(
+        "cstar.base.base_model._get_hash_from_checkout_target", return_value="test123"
+    ):
+        yield MockBaseModel()
 
 
 def test_base_model_str(generic_base_model):
-    result_str = str(generic_base_model)
-
     # Define the expected output
     expected_str = (
         "MockBaseModel\n"
         "-------------\n"
         "source_repo : https://github.com/test/repo.git (default)\n"
         "checkout_target : test_target (corresponding to hash test123) (default)\n"
-        "local_config_status: 3 (Environment variable TEST_ROOT is not present and it is assumed the base model is not installed locally)"
     )
 
     # Compare the actual result with the expected result
-    assert result_str == expected_str
+    assert expected_str in str(generic_base_model)
+
+    # Assuming generic_base_model is an instance of a class
+    with mock.patch.object(
+        type(generic_base_model), "local_config_status", new_callable=mock.PropertyMock
+    ) as mock_local_config_status:
+        mock_local_config_status.return_value = 0
+        assert (
+            "(Environment variable TEST_ROOT is present, points to the correct repository remote, and is checked out at the correct hash)"
+            in str(generic_base_model)
+        )
+
+        mock_local_config_status.return_value = 1
+        assert (
+            "(Environment variable TEST_ROOT is present but does not point to the correct repository remote [unresolvable])"
+            in str(generic_base_model)
+        )
+
+        # Change the return value again
+        mock_local_config_status.return_value = 2
+        assert (
+            "(Environment variable TEST_ROOT is present, points to the correct repository remote, but is checked out at the wrong hash)"
+            in str(generic_base_model)
+        )
+
+        # Final test with return value 3
+        mock_local_config_status.return_value = 3
+        assert (
+            "(Environment variable TEST_ROOT is not present and it is assumed the base model is not installed locally)"
+            in str(generic_base_model)
+        )
 
 
 def test_base_model_repr(generic_base_model):
@@ -86,20 +108,23 @@ class TestBaseModelConfig:
         )
         self.mock_get_repo_head_hash = self.patch_get_repo_head_hash.start()
 
+        self.patch_os_environ = mock.patch.dict(
+            os.environ, {"TEST_ROOT": "/path/to/repo"}, clear=True
+        )
+        self.patch_os_environ.start()
+
     def teardown_method(self):
         self.patch_get_repo_remote.stop()
         self.patch_get_repo_head_hash.stop()
+        self.patch_os_environ.stop()
 
-    @mock.patch.dict(os.environ, {"TEST_ROOT": "/path/to/repo"}, clear=True)
     def test_local_config_status_valid(self, generic_base_model):
         self.mock_get_repo_remote.return_value = "https://github.com/test/repo.git"
         self.mock_get_repo_head_hash.return_value = "test123"
 
-        # Assert the status is 0 when everything is correct
         assert generic_base_model.local_config_status == 0
         assert generic_base_model.is_setup
 
-    @mock.patch.dict(os.environ, {"TEST_ROOT": "/path/to/repo"}, clear=True)
     def test_local_config_status_wrong_remote(self, generic_base_model):
         self.mock_get_repo_remote.return_value = (
             "https://github.com/test/wrong_repo.git"
@@ -107,7 +132,6 @@ class TestBaseModelConfig:
 
         assert generic_base_model.local_config_status == 1
 
-    @mock.patch.dict(os.environ, {"TEST_ROOT": "/path/to/repo"}, clear=True)
     def test_local_config_status_wrong_checkout(self, generic_base_model):
         self.mock_get_repo_remote.return_value = "https://github.com/test/repo.git"
         self.mock_get_repo_head_hash.return_value = "wrong123"
@@ -139,12 +163,18 @@ class TestBaseModelConfigHandling:
         self.patch_subprocess_run = mock.patch("subprocess.run")
         self.mock_subprocess_run = self.patch_subprocess_run.start()
 
+        self.patch_os_environ = mock.patch.dict(
+            os.environ, {"TEST_ROOT": "/path/to/repo"}, clear=True
+        )
+        self.patch_os_environ.start()  # Apply the patch
+
     def teardown_method(self):
         self.patch_local_config_status.stop()
         self.patch_subprocess_run.stop()
         self.patch_local_config_status.stop()
         self.patch_get_repo_head_hash.stop()
         self.patch_get_repo_remote.stop()
+        self.patch_os_environ.stop()
 
     def test_handle_config_status_valid(self, generic_base_model, capsys):
         """Test when local_config_status == 0 (correct configuration)"""
@@ -157,6 +187,15 @@ class TestBaseModelConfigHandling:
         # Capture printed output and check that nothing happens
         captured = capsys.readouterr()
         assert "correctly configured. Nothing to be done" in captured.out
+
+    @mock.patch.dict(os.environ, {}, clear=True)
+    def test_handle_config_status_no_local_root(self, generic_base_model):
+        with pytest.raises(EnvironmentError) as exception_info:
+            generic_base_model.handle_config_status()
+        assert (
+            str(exception_info.value)
+            == "System environment variable TEST_ROOT is not set."
+        )
 
     def test_handle_config_status_wrong_repo(self, generic_base_model):
         """Test when local_config_status == 1 (wrong repository remote)"""
@@ -182,7 +221,6 @@ class TestBaseModelConfigHandling:
         assert str(exception_info.value) == expected_message
 
     @mock.patch("builtins.input", side_effect=["not y or n"])  # mock_input
-    @mock.patch.dict(os.environ, {"TEST_ROOT": "/path/to/repo"}, clear=True)
     def test_handle_config_status_wrong_checkout_user_invalid(
         self, mock_input, generic_base_model, capsys
     ):
@@ -200,7 +238,6 @@ class TestBaseModelConfigHandling:
         assert expected_message in str(captured.out)
 
     @mock.patch("builtins.input", side_effect=["n"])  # mock_input
-    @mock.patch.dict(os.environ, {"TEST_ROOT": "/path/to/repo"}, clear=True)
     def test_handle_config_status_wrong_checkout_user_n(
         self, mock_input, generic_base_model, capsys
     ):
@@ -215,7 +252,6 @@ class TestBaseModelConfigHandling:
         capsys.readouterr()
 
     @mock.patch("builtins.input", side_effect=["y"])  # mock_input
-    @mock.patch.dict(os.environ, {"TEST_ROOT": "/path/to/repo"}, clear=True)
     def test_handle_config_status_wrong_checkout_user_y(
         self, mock_input, generic_base_model, capsys
     ):
@@ -289,3 +325,18 @@ class TestBaseModelConfigHandling:
         expected_message = "invalid selection; enter 'y','n',or 'custom'"
         captured = capsys.readouterr()
         assert expected_message in str(captured.out)
+
+    @mock.patch(
+        "builtins.input", side_effect=["custom", "some/install/path"]
+    )  # mock_input
+    def test_handle_config_status_no_env_var_user_custom(
+        self, mock_input, generic_base_model, capsys
+    ):
+        self.mock_local_config_status.return_value = 3
+        generic_base_model.handle_config_status()
+        expected_install_dir = Path("some/install/path").resolve()
+
+        captured = capsys.readouterr()
+        assert (f"mock installing BaseModel at {expected_install_dir}") in str(
+            captured.out
+        )
