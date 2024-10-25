@@ -208,13 +208,7 @@ class BaseModel(ABC):
               -> prompt installation of the base model
         """
 
-        local_root_str = os.environ.get(self.expected_env_var, "")
-
-        if not local_root_str:
-            raise EnvironmentError(
-                f"System environment variable {self.expected_env_var} is not set."
-            )
-        local_root = Path(local_root_str)
+        local_root = Path(os.environ.get(self.expected_env_var, ""))
 
         match self.local_config_status:
             case 0:

@@ -188,15 +188,6 @@ class TestBaseModelConfigHandling:
         captured = capsys.readouterr()
         assert "correctly configured. Nothing to be done" in captured.out
 
-    @mock.patch.dict(os.environ, {}, clear=True)
-    def test_handle_config_status_no_local_root(self, generic_base_model):
-        with pytest.raises(EnvironmentError) as exception_info:
-            generic_base_model.handle_config_status()
-        assert (
-            str(exception_info.value)
-            == "System environment variable TEST_ROOT is not set."
-        )
-
     def test_handle_config_status_wrong_repo(self, generic_base_model):
         """Test when local_config_status == 1 (wrong repository remote)"""
         # Mock the config status to be 1 (wrong repo)
