@@ -1,4 +1,3 @@
-# cstar/marbl/base_model.py                                28     13    54%   27, 31, 35, 38, 54-84
 import os
 import pytest
 from unittest import mock
@@ -91,8 +90,8 @@ class TestMARBLBaseModelGet:
         )
         self.mock_write_to_config_file.assert_called_once_with(config_file_str)
 
-        self.mock_subprocess_run.called_once_with(
-            f"make {_CSTAR_COMPILER}",
+        self.mock_subprocess_run.assert_called_once_with(
+            f"make {_CSTAR_COMPILER} USEMPI=TRUE",
             cwd=f"{marbl_dir}/src",
             capture_output=True,
             text=True,
