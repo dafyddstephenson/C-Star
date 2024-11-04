@@ -28,7 +28,7 @@ class MARBLBaseModel(BaseModel):
 
     @property
     def default_checkout_target(self) -> str:
-        return "v0.45.0"
+        return "marbl0.45.0"
 
     @property
     def expected_env_var(self) -> str:

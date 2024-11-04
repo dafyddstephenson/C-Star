@@ -1,3 +1,4 @@
+import warnings
 from typing import Optional
 from cstar.base import Component
 
@@ -13,10 +14,18 @@ class MARBLComponent(Component):
 
     def __init__(
         self,
-        base_model: "MARBLBaseModel",
+        base_model: Optional["MARBLBaseModel"] = None,
         additional_source_code: Optional["AdditionalCode"] = None,
     ):
-        self.base_model = base_model
+        if base_model is None:
+            warnings.warn(
+                "No base_model provided; using default MARBLBaseModel instance.",
+                stacklevel=2,  # Raises the warning at the caller's stack level for clarity
+            )
+            self.base_model = MARBLBaseModel()
+        else:
+            self.base_model = base_model
+
         if additional_source_code is not None:
             raise NotImplementedError(
                 "Source code modifications to MARBL " + "are not yet supported"

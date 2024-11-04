@@ -5,7 +5,7 @@ import subprocess
 import shutil
 from pathlib import Path
 from datetime import datetime
-from typing import Optional, TYPE_CHECKING, List
+from typing import Optional, TYPE_CHECKING, List, cast
 
 from cstar.base.utils import _calculate_node_distribution, _replace_text_in_file
 from cstar.base.component import Component
@@ -90,12 +90,58 @@ class ROMSComponent(Component):
     additional_code: "AdditionalCode"
     discretization: "ROMSDiscretization"
 
+    @property
+    def _default_values(self) -> dict:
+        """Self-consistent values that are used to create a default ROMSComponent
+        instance.
+
+        The default instance is a minimal ROMS configuration, 'Rivers_ana', that
+        represents a river outflow with analytical grid, forcing, and initial conditions.
+        No input datasets are required for this ROMS configuration.
+
+        Returns:
+        --------
+        defaults (dict):
+           A dictionary containing necessary parameters to instantiate the default
+           ROMSComponent instance.
+        """
+        defaults = {
+            "base_model": ROMSBaseModel(),
+            "discretization": ROMSDiscretization(
+                n_procs_x=3, n_procs_y=2, time_step=60
+            ),
+            "namelists": AdditionalCode(
+                location="https://github.com/CESR-lab/ucla-roms.git",
+                checkout_target="main",
+                subdir="Examples/Rivers_ana/",
+                files=[
+                    "river_ana.in",
+                ],
+            ),
+            "additional_source_code": AdditionalCode(
+                location="https://github.com/CESR-lab/ucla-roms.git",
+                checkout_target="main",
+                subdir="Examples/Rivers_ana/",
+                files=[
+                    "ana_frc_river.h",
+                    "ana_grid.h",
+                    "ana_init.h",
+                    "cppdefs.opt",
+                    "../../ci/ci_makefiles/Work/Makefile",
+                    "ocean_vars.opt",
+                    "param.opt",
+                    "river_frc.opt",
+                ],
+            ),
+        }
+        return defaults
+
     def __init__(
         self,
-        base_model: "ROMSBaseModel",
-        discretization: "ROMSDiscretization",
-        namelists: "AdditionalCode",
-        additional_source_code: "AdditionalCode",
+        base_model: Optional["ROMSBaseModel"] = None,
+        discretization: Optional["ROMSDiscretization"] = None,
+        namelists: Optional["AdditionalCode"] = None,
+        additional_source_code: Optional["AdditionalCode"] = None,
         model_grid: Optional["ROMSModelGrid"] = None,
         initial_conditions: Optional["ROMSInitialConditions"] = None,
         tidal_forcing: Optional["ROMSTidalForcing"] = None,
@@ -136,10 +182,55 @@ class ROMSComponent(Component):
             An intialized ROMSComponent object
         """
 
-        self.base_model = base_model
-        self.namelists = namelists
-        self.additional_source_code = additional_source_code
-        self.discretization = discretization
+        # If all expected attributes are None, quietly use defaults from _default_values
+        # If user is mixing and matching defaults with non-defaults, issue a warning:
+        expected_attrs = [base_model, discretization, namelists, additional_source_code]
+        if (any(attr is None for attr in expected_attrs)) and not (
+            all(attr is None for attr in expected_attrs)
+        ):
+            warnings.warn(
+                "\n********************************************************************************"
+                "\n                                  WARNING:"
+                "\nSome expected ROMSComponent attributes are missing; C-Star will use defaults. "
+                "\nThis could lead to unexpected behavior if combining defaults with non-defaults. "
+                "\nExpected attributes are:"
+                "\n    base_model, discretization, namelists, additional_source_code. "
+                "\nSee `help(cstar.roms.ROMSComponent._default_values)` for more information."
+                "\n********************************************************************************",
+                stacklevel=2,
+            )
+
+        # If all expected attributes are None, use defaults from _default_values
+        if all(attr is None for attr in expected_attrs):
+            self.__dict__.update(self._default_values)
+        else:
+            # Otherwise, use provided values or defaults from _default_values
+            self.base_model = cast(
+                "ROMSBaseModel",
+                base_model
+                if base_model is not None
+                else self._default_values["base_model"],
+            )
+            self.discretization = cast(
+                "ROMSDiscretization",
+                discretization
+                if discretization is not None
+                else self._default_values["discretization"],
+            )
+            self.namelists = cast(
+                "AdditionalCode",
+                namelists
+                if namelists is not None
+                else self._default_values["namelists"],
+            )
+            self.additional_source_code = cast(
+                "AdditionalCode",
+                additional_source_code
+                if additional_source_code is not None
+                else self._default_values["additional_source_code"],
+            )
+
+        # Non-essential attributes (can safely be None)
         self.model_grid = model_grid
         self.initial_conditions = initial_conditions
         self.tidal_forcing = tidal_forcing
