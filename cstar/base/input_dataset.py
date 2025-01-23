@@ -246,7 +246,10 @@ class InputDataset(ABC):
             The local directory in which this input dataset will be saved.
         """
         Path(local_dir).mkdir(parents=True, exist_ok=True)
-        target_path = Path(local_dir).resolve() / self.source.basename
+        local_dir = Path(local_dir).resolve()
+        # target_path = Path(local_dir).resolve() / self.source.basename
+        target_fname = f"{self.__class__.__name__}.nc"
+        target_path = local_dir / target_fname
 
         if (self.exists_locally) and (self.working_path == target_path):
             print(f"Input dataset already exists at {self.working_path}, skipping.")
@@ -279,6 +282,9 @@ class InputDataset(ABC):
                 )
                 to_fetch.fetch(self.source.basename, downloader=downloader)
                 computed_source_hash = self.source.file_hash
+
+                # Rename the downloaded file to the correct filename
+                (local_dir / self.source.basename).rename(target_path)
             else:
                 raise ValueError(
                     "InputDataset.source.source_type is 'url' "

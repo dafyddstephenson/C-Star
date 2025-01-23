@@ -594,7 +594,7 @@ class TestInputDatasetGet:
         """Test the InputDataset.get method when the target file already exists."""
         # Hardcode the resolved path for local_dir
         local_dir_resolved = Path("/resolved/local/dir")
-        target_path = local_dir_resolved / "local_file.nc"
+        target_path = local_dir_resolved / "MockInputDataset.nc"
 
         # Set the side effect of the mocked resolve
         self.mock_resolve.return_value = local_dir_resolved
@@ -646,7 +646,7 @@ class TestInputDatasetGet:
             self.mock_symlink_to.assert_called_once_with(source_filepath_local)
 
             # Assert that working_path is updated to the resolved target path
-            expected_target_path = local_dir_resolved / "local_file.nc"
+            expected_target_path = local_dir_resolved / "MockInputDataset.nc"
             assert (
                 local_input_dataset.working_path == expected_target_path
             ), f"Expected working_path to be {expected_target_path}, but got {local_input_dataset.working_path}"
@@ -679,8 +679,14 @@ class TestInputDatasetGet:
     @mock.patch("pooch.create")
     @mock.patch("pooch.HTTPDownloader")
     @mock.patch("cstar.base.input_dataset._get_sha256_hash", return_value="mocked_hash")
+    @mock.patch("pathlib.Path.rename")
     def test_get_with_remote_source(
-        self, mock_get_hash, mock_downloader, mock_pooch_create, remote_input_dataset
+        self,
+        mock_rename,
+        mock_get_hash,
+        mock_downloader,
+        mock_pooch_create,
+        remote_input_dataset,
     ):
         """Test the InputDataset.get method with a remote source file.
 
@@ -689,7 +695,7 @@ class TestInputDatasetGet:
         path.
         """
         # Define resolved paths
-        target_filepath_remote = self.target_dir / "remote_file.nc"
+        target_filepath = self.target_dir / "MockInputDataset.nc"
 
         # Mock Path.stat to simulate file stats for target_path
         mock_stat_result = mock.Mock(
@@ -721,11 +727,12 @@ class TestInputDatasetGet:
                 mock_fetch.assert_called_once_with(
                     "remote_file.nc", downloader=mock_downloader.return_value
                 )
-
+                # Ensure the file was renamed
+                mock_rename.assert_called_once_with(target_filepath)
                 # Assert that working_path is updated to the expected target path
                 assert (
-                    remote_input_dataset.working_path == target_filepath_remote
-                ), f"Expected working_path to be {target_filepath_remote}, but got {remote_input_dataset.working_path}"
+                    remote_input_dataset.working_path == target_filepath
+                ), f"Expected working_path to be {target_filepath}, but got {remote_input_dataset.working_path}"
 
     def test_get_remote_with_no_file_hash(self, remote_input_dataset):
         """Test the InputDataset.get method when no file_hash is provided for a remote
