@@ -7,7 +7,7 @@ import roms_tools
 
 from abc import ABC
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from cstar.base.input_dataset import InputDataset
 from cstar.base.utils import _list_to_concise_str, _get_sha256_hash
 
@@ -119,8 +119,6 @@ class ROMSInputDataset(InputDataset, ABC):
         local_dir: str | Path,
         start_date: Optional[dt.datetime] | str = None,
         end_date: Optional[dt.datetime] | str = None,
-        np_xi: Optional[int] = None,
-        np_eta: Optional[int] = None,
     ) -> None:
         """Make this input dataset available as a netCDF file in `local_dir`.
 
@@ -128,14 +126,14 @@ class ROMSInputDataset(InputDataset, ABC):
         instances where the source is a `roms-tools`-compatible `yaml` file.
 
         Steps:
-        i. Fetch the source file to `local_dir` using `InputDataset.get()`.
-            If the file is not in `yaml` format, we are done.
-        ii. If the file is in `yaml` format, modify the local copy so any
-            time-varying datasets are given the correct start and end date
-        iii. Pass the modified yaml to roms-tools and save the resulting
-            object to netCDF.
-        iv. Update the working_path attribute and cache the metadata and
-            checksums of any produced netCDF files
+        i. Determine if get() has already been called on this InputDataset
+        ii. Call get() in the base class if the file is not in yaml format
+        iii. Obtain the yaml text through a local file read or URL request
+        iv. Modify any entries corresponding to the start and end date
+        v. Save the modified yaml to a temporary file and pass it to
+           roms-tools to save the resulting object to a netCDF
+        vi. Update the working_path attribute and cache the metadata and
+           checksums of any produced netCDF files
 
         Parameters:
         -----------
@@ -143,10 +141,6 @@ class ROMSInputDataset(InputDataset, ABC):
            The directory in which to save the input dataset netCDF file
         start_date,end_date (dt.datetime, optional):
            If the dataset to be created is time-varying, it is made using these dates
-        np_xi, np_eta (int, optional):
-           If desired, save a partitioned copy of the input dataset to be used when
-           running ROMS in parallel. np_xi is the number of x-direction processors,
-           np_eta is the number of y-direction processors
         """
         # Ensure we're working with a Path object
         local_dir = Path(local_dir).resolve()
@@ -207,33 +201,27 @@ class ROMSInputDataset(InputDataset, ABC):
         with tempfile.NamedTemporaryFile(mode="w", delete=True) as temp_file:
             temp_file.write(f"---{header}---\n" + yaml.dump(yaml_dict))
             temp_file.flush()  # Ensure data is written to disk
-
+            from_yaml_kwargs: Dict[Any, Any] = {}
+            from_yaml_kwargs["filepath"] = temp_file.name
             # roms-tools currently requires dask for every class except Grid
             # in order to use wildcards in filepaths (known xarray issue):
-            if roms_tools_class_name == "Grid":
-                roms_tools_class_instance = roms_tools_class.from_yaml(temp_file.name)
-            else:
-                roms_tools_class_instance = roms_tools_class.from_yaml(
-                    temp_file.name, use_dask=True
-                )
+            if roms_tools_class_name not in [
+                "Grid",
+            ]:
+                from_yaml_kwargs["use_dask"] = True
+
+            roms_tools_class_instance = roms_tools_class.from_yaml(**from_yaml_kwargs)
         ##
 
         # ... and save:
-        print(f"Saving roms-tools dataset created from {self.source.location}...")
-        if (np_eta is not None) and (np_xi is not None):
-            savepath = roms_tools_class_instance.save(
-                local_dir / "PARTITIONED" / Path(self.source.location).stem,
-                np_xi=np_xi,
-                np_eta=np_eta,
-            )
-            self.partitioned_files = savepath
-
-        else:
-            savepath = roms_tools_class_instance.save(
-                Path(f"{local_dir/Path(self.source.location).stem}.nc")
-            )
+        save_kwargs = {}
+        # Base filename on subclass, e.g. ROMSModelGrid.nc
+        save_kwargs["filepath"] = local_dir / f"{self.__class__.__name__}.nc"
+        print(
+            f"Saving roms-tools dataset created from {self.source.location} as {save_kwargs.get('filepath')}..."
+        )
+        savepath = roms_tools_class_instance.save(**save_kwargs)
         self.working_path = savepath[0] if len(savepath) == 1 else savepath
-
         self._local_file_hash_cache = {
             path: _get_sha256_hash(path.resolve()) for path in savepath
         }  # 27
@@ -266,8 +254,22 @@ class ROMSBoundaryForcing(ROMSInputDataset):
     pass
 
 
+class ROMSBGCBoundaryForcing(ROMSInputDataset):
+    """An implementation of the ROMSInputDataset class for model BGC boundary condition
+    files."""
+
+    pass
+
+
 class ROMSSurfaceForcing(ROMSInputDataset):
     """An implementation of the ROMSInputDataset class for model surface forcing
+    files."""
+
+    pass
+
+
+class ROMSBGCSurfaceForcing(ROMSInputDataset):
+    """An implementation of the ROMSInputDataset class for model surface BGC forcing
     files."""
 
     pass

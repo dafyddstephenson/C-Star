@@ -16,7 +16,9 @@ from cstar.roms.input_dataset import (
     ROMSInitialConditions,
     ROMSModelGrid,
     ROMSSurfaceForcing,
+    ROMSBGCSurfaceForcing,
     ROMSBoundaryForcing,
+    ROMSBGCBoundaryForcing,
     ROMSTidalForcing,
 )
 from cstar.roms.discretization import ROMSDiscretization
@@ -56,9 +58,12 @@ class ROMSComponent(Component):
         The tidal forcing InputDataset associated with this ROMSComponent
     surface_forcing: (list of) ROMSSurfaceForcing, optional
         list of surface forcing InputDataset objects associated with this ROMSComponent
+    bgc_surface_forcing: (list of) ROMSBGCSurfaceForcing, optional
+        list of BGC surface forcing InputDataset objects associated with this ROMSComponent
     boundary_forcing: (list of) ROMSBoundaryForcing, optional
         list of boundary forcing InputDataset objects associated with this ROMSComponent
-
+    bgc_boundary_forcing: (list of) ROMSBGCBoundaryForcing, optional
+        list of BGC boundary forcing InputDataset objects associated with this ROMSComponent
 
     Properties:
     -----------
@@ -93,7 +98,9 @@ class ROMSComponent(Component):
         initial_conditions: Optional["ROMSInitialConditions"] = None,
         tidal_forcing: Optional["ROMSTidalForcing"] = None,
         boundary_forcing: Optional[list["ROMSBoundaryForcing"]] = None,
+        bgc_boundary_forcing: Optional[list["ROMSBGCBoundaryForcing"]] = None,
         surface_forcing: Optional[list["ROMSSurfaceForcing"]] = None,
+        bgc_surface_forcing: Optional[list["ROMSBGCSurfaceForcing"]] = None,
     ):
         """Initialize a ROMSComponent object from a ROMSBaseModel object, additional
         code, input datasets, and discretization information.
@@ -120,8 +127,12 @@ class ROMSComponent(Component):
             The tidal forcing InputDataset associated with this ROMSComponent
         surface_forcing: (list of) ROMSSurfaceForcing, optional
             list of surface forcing InputDataset objects associated with this ROMSComponent
+        bgc_surface_forcing: (list of) ROMSBGCSurfaceForcing, optional
+            list of BGC surface forcing InputDataset objects associated with this ROMSComponent
         boundary_forcing: (list of) ROMSBoundaryForcing, optional
             list of boundary forcing InputDataset objects associated with this ROMSComponent
+        bgc_boundary_forcing: (list of) ROMSBGCBoundaryForcing, optional
+            list of BGC boundary forcing InputDataset objects associated with this ROMSComponent
 
         Returns:
         --------
@@ -141,12 +152,32 @@ class ROMSComponent(Component):
             raise TypeError(
                 "ROMSComponent.surface_forcing must be a list of ROMSSurfaceForcing instances"
             )
+        self.bgc_surface_forcing = (
+            [] if bgc_surface_forcing is None else bgc_surface_forcing
+        )
+        if not all(
+            [isinstance(sf, ROMSBGCSurfaceForcing) for sf in self.bgc_surface_forcing]
+        ):
+            raise TypeError(
+                "ROMSComponent.bgc_surface_forcing must be a list of ROMSBGCSurfaceForcing instances"
+            )
+
         self.boundary_forcing = [] if boundary_forcing is None else boundary_forcing
         if not all(
             [isinstance(bf, ROMSBoundaryForcing) for bf in self.boundary_forcing]
         ):
             raise TypeError(
                 "ROMSComponent.boundary_forcing must be a list of ROMSBoundaryForcing instances"
+            )
+
+        self.bgc_boundary_forcing = (
+            [] if bgc_boundary_forcing is None else bgc_boundary_forcing
+        )
+        if not all(
+            [isinstance(bf, ROMSBGCBoundaryForcing) for bf in self.bgc_boundary_forcing]
+        ):
+            raise TypeError(
+                "ROMSComponent.bgc_boundary_forcing must be a list of ROMSBGCBoundaryForcing instances"
             )
 
         # roms-specific
@@ -363,6 +394,19 @@ class ROMSComponent(Component):
                 ROMSBoundaryForcing(**bf_kwargs)
             )
 
+        # Construct any ROMSBGCBoundaryForcing instances:
+        bgc_boundary_forcing_entries = component_dict.get("bgc_boundary_forcing", [])
+        if len(bgc_boundary_forcing_entries) > 0:
+            component_kwargs["bgc_boundary_forcing"] = []
+        if isinstance(bgc_boundary_forcing_entries, dict):
+            bgc_boundary_forcing_entries = [
+                bgc_boundary_forcing_entries,
+            ]
+        for bgcbf_kwargs in bgc_boundary_forcing_entries:
+            component_kwargs["bgc_boundary_forcing"].append(
+                ROMSBGCBoundaryForcing(**bgcbf_kwargs)
+            )
+
         # Construct any ROMSSurfaceForcing instances:
         surface_forcing_entries = component_dict.get("surface_forcing", [])
         if len(surface_forcing_entries) > 0:
@@ -373,6 +417,19 @@ class ROMSComponent(Component):
             ]
         for sf_kwargs in surface_forcing_entries:
             component_kwargs["surface_forcing"].append(ROMSSurfaceForcing(**sf_kwargs))
+
+        # Construct any ROMSBGCSurfaceForcing instances:
+        bgc_surface_forcing_entries = component_dict.get("bgc_surface_forcing", [])
+        if len(bgc_surface_forcing_entries) > 0:
+            component_kwargs["bgc_surface_forcing"] = []
+        if isinstance(bgc_surface_forcing_entries, dict):
+            bgc_surface_forcing_entries = [
+                bgc_surface_forcing_entries,
+            ]
+        for bgcsf_kwargs in bgc_surface_forcing_entries:
+            component_kwargs["bgc_surface_forcing"].append(
+                ROMSBGCSurfaceForcing(**bgcsf_kwargs)
+            )
 
         return cls(**component_kwargs)
 
@@ -474,10 +531,20 @@ class ROMSComponent(Component):
                 namelist_forcing_str += (
                     "\n     " + partitioned_files_to_namelist_string(sf)
                 )
+        for bgcsf in self.bgc_surface_forcing:
+            if len(bgcsf.partitioned_files) > 0:
+                namelist_forcing_str += (
+                    "\n     " + partitioned_files_to_namelist_string(bgcsf)
+                )
         for bf in self.boundary_forcing:
             if len(bf.partitioned_files) > 0:
                 namelist_forcing_str += (
                     "\n     " + partitioned_files_to_namelist_string(bf)
+                )
+        for bgcbf in self.bgc_boundary_forcing:
+            if len(bgcbf.partitioned_files) > 0:
+                namelist_forcing_str += (
+                    "\n     " + partitioned_files_to_namelist_string(bgcbf)
                 )
         if self.tidal_forcing is not None:
             if len(self.tidal_forcing.partitioned_files) == 0:
@@ -580,8 +647,12 @@ class ROMSComponent(Component):
             input_datasets.append(self.tidal_forcing)
         if len(self.boundary_forcing) > 0:
             input_datasets.extend(self.boundary_forcing)
+        if len(self.bgc_boundary_forcing) > 0:
+            input_datasets.extend(self.bgc_boundary_forcing)
         if len(self.surface_forcing) > 0:
             input_datasets.extend(self.surface_forcing)
+        if len(self.bgc_surface_forcing) > 0:
+            input_datasets.extend(self.bgc_surface_forcing)
         return input_datasets
 
     def to_dict(self) -> dict:
@@ -616,9 +687,18 @@ class ROMSComponent(Component):
             component_dict["surface_forcing"] = [
                 sf.to_dict() for sf in self.surface_forcing
             ]
+        if len(self.bgc_surface_forcing) > 0:
+            component_dict["bgc_surface_forcing"] = [
+                bgcsf.to_dict() for bgcsf in self.bgc_surface_forcing
+            ]
+
         if len(self.boundary_forcing) > 0:
             component_dict["boundary_forcing"] = [
                 bf.to_dict() for bf in self.boundary_forcing
+            ]
+        if len(self.bgc_boundary_forcing) > 0:
+            component_dict["bgc_boundary_forcing"] = [
+                bgcbf.to_dict() for bgcbf in self.bgc_boundary_forcing
             ]
 
         return component_dict
