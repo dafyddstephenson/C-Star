@@ -1,3 +1,4 @@
-intel
-netcdf
+ncarenv/23.06
+intel/2023.0.0
+netcdf/4.9.2
 cray-mpich/8.1.25
