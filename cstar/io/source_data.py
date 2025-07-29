@@ -1,3 +1,4 @@
+from abc import ABC, abstractmethod
 from collections.abc import Iterable, Iterator, Sequence
 from enum import Enum
 from pathlib import Path
@@ -35,48 +36,9 @@ class FileEncoding(Enum):
     BINARY = "binary"
 
 
-class SourceData:
-    def __init__(
-        self, location: str | Path, file_hash: str | None, checkout_target: str | None
-    ):
-        self._location = str(location)
-        self._file_hash = file_hash
-        self._checkout_target = checkout_target
-        self._stager = self._select_stager()
-
-    # non-public attrs:
-    @property
-    def location(self) -> str:
-        return self._location
-
-    @property
-    def file_hash(self) -> str | None:
-        return self._file_hash
-
-    @property
-    def checkout_target(self) -> str | None:
-        return self._checkout_target
-
-    # Inferred data characteristics
-
-    @property
-    def _location_as_path(self) -> Path:
-        """Return self.location as a Path for parsing"""
-        if self.location_type is LocationType.HTTP:
-            return Path(urlparse(self.location).path)
-        elif self.location_type is LocationType.PATH:
-            return Path(self.location).resolve()
-        raise ValueError(f"Cannot convert location {self.location} to Path")
-
-    @property
-    def filename(self) -> str:
-        """Get the filename from `location`"""
-        return self._location_as_path.name
-
-    @property
-    def suffix(self) -> str:
-        """Get the extension from `location`"""
-        return self._location_as_path.suffix
+class _SourceInspector:
+    def __init__(self, location: str):
+        self.location = location
 
     @property
     def location_type(self) -> LocationType:
@@ -94,6 +56,15 @@ class SourceData:
             )
 
     @property
+    def _location_as_path(self) -> Path:
+        """Return self.location as a Path for parsing"""
+        if self.location_type is LocationType.HTTP:
+            return Path(urlparse(self.location).path)
+        elif self.location_type is LocationType.PATH:
+            return Path(self.location).resolve()
+        raise ValueError(f"Cannot convert location {self.location} to Path")
+
+    @property
     def _is_repository(self) -> bool:
         """Checks if self.location describes a repository using a git ls-remote subprocess."""
         try:
@@ -101,12 +72,6 @@ class SourceData:
             return True
         except RuntimeError:
             return False
-
-    @property
-    def _http_is_html(self) -> bool:
-        r = requests.head(self.location, allow_redirects=True, timeout=10)
-        content_type = r.headers.get("Content-Type", "").lower()
-        return content_type.startswith("text/html")
 
     @property
     def source_type(self) -> SourceType:
@@ -127,6 +92,23 @@ class SourceData:
             "Valid source types: \n"
             "\n".join([value.value for value in SourceType])
         )
+
+    @property
+    def _http_is_html(self) -> bool:
+        """Determine if the location is a HTML page.
+
+        As certain services provide URLs that resemble direct filepaths, but
+        redirect to, e.g., login pages, this property queries whether the location
+        is or is not HTML.
+        """
+        r = requests.head(self.location, allow_redirects=True, timeout=10)
+        content_type = r.headers.get("Content-Type", "").lower()
+        return content_type.startswith("text/html")
+
+    @property
+    def suffix(self) -> str:
+        """Get the extension from `location`"""
+        return self._location_as_path.suffix
 
     @property
     def file_encoding(self) -> FileEncoding | None:
@@ -152,37 +134,131 @@ class SourceData:
         else:
             return FileEncoding.BINARY
 
-    # Staging logic
-    def _select_stager(self) -> "Stager":
-        """Logic to determine the correct stager based on the above
+    def infer_class(self) -> type["SourceData"]:
+        """Logic to determine the correct SourceData subclass based on the above
         characteristics.
         """
-        # Remote stagers
+        # Remote sources
         if self.location_type is LocationType.HTTP:
             if self.source_type is SourceType.REPOSITORY:
-                return RemoteRepositoryStager()
+                return RemoteRepositorySource
 
             if self.source_type is SourceType.FILE:
                 if self.file_encoding is FileEncoding.BINARY:
-                    return RemoteBinaryFileStager()
+                    return RemoteBinaryFileSource
                 elif self.file_encoding is FileEncoding.TEXT:
-                    return RemoteTextFileStager()
+                    return RemoteTextFileSource
 
-        # Local stagers
+        # Local sources
         if (self.location_type is LocationType.PATH) and (
             self.source_type is SourceType.FILE
         ):
             if self.file_encoding is FileEncoding.TEXT:
-                return LocalTextFileStager()
+                return LocalTextFileSource
             elif self.file_encoding is FileEncoding.BINARY:
-                return LocalBinaryFileStager()
+                return LocalBinaryFileSource
 
         raise ValueError(
             f"Unable to determine an appropriate stager for data at {self.location}"
         )
 
+
+class SourceData(ABC):
+    def __init__(self, location: str | Path, identifier: str | None = None):
+        self._location = str(location)
+        self._identifier = identifier
+
+    @classmethod
+    def from_location(cls, location: str | Path, identifier: str | None = None):
+        cls = _SourceInspector(location=str(location)).infer_class()
+
+        return cls(location=location, identifier=identifier)
+
+    @property
+    def location(self) -> str:
+        return self._location
+
+    @property
+    def identifier(self) -> str | None:
+        return self._identifier
+
+    @property
+    @abstractmethod
+    def _location_as_path(self) -> Path:
+        """Return self.location as a Path for parsing"""
+        pass
+
+    @property
+    def filename(self) -> str:
+        """Get the filename from `location`"""
+        return self._location_as_path.name
+
+    @property
+    def suffix(self) -> str:
+        """Get the extension from `location`"""
+        return self._location_as_path.suffix
+
+    @property
+    @abstractmethod
+    def stager(self) -> "Stager":
+        pass
+
     def stage(self, target_dir: str | Path) -> "StagedData":
-        return self._stager.stage(target_dir=Path(target_dir), source=self)
+        return self.stager.stage(target_dir=Path(target_dir), source=self)
+
+
+class RemoteSourceData(SourceData, ABC):
+    @property
+    def _location_as_path(self) -> Path:
+        return Path(urlparse(self.location).path)
+
+
+class RemoteBinaryFileSource(RemoteSourceData):
+    @property
+    def file_hash(self) -> str | None:
+        return self._identifier
+
+    @property
+    def stager(self):
+        return RemoteBinaryFileStager
+
+
+class RemoteTextFileSource(RemoteSourceData):
+    @property
+    def file_hash(self) -> str | None:
+        return self._identifier
+
+    @property
+    def stager(self):
+        return RemoteTextFileStager
+
+
+class RemoteRepositorySource(RemoteSourceData):
+    @property
+    def checkout_target(self) -> str | None:
+        return self._identifier
+
+    @property
+    def stager(self):
+        return RemoteRepositoryStager
+
+
+class LocalSourceData(SourceData, ABC):
+    @property
+    def _location_as_path(self) -> Path:
+        return Path(self.location).resolve()
+
+
+class LocalBinaryFileSource(SourceData):
+    @property
+    def stager(self):
+        return LocalBinaryFileStager
+
+
+class LocalTextFileSource(SourceData):
+    @property
+    def stager(self):
+        return LocalTextFileStager
 
 
 class SourceDataCollection:
@@ -216,24 +292,20 @@ class SourceDataCollection:
 
     @classmethod
     def from_locations(
-        cls,
-        locations: Sequence[str | Path],
-        file_hashes: Sequence[str | None] | None = None,
-        checkout_targets: Sequence[str | None] | None = None,
+        cls, locations: Sequence[str | Path], identifiers: Sequence[str | None]
     ) -> "SourceDataCollection":
         """Create a SourceDataCollection from a list of locations with optional
         parallel hash and checkout_target lists.
         """
         n = len(locations)
-        file_hashes = file_hashes or [None] * n
-        checkout_targets = checkout_targets or [None] * n
+        identifiers = identifiers or [None] * n
 
-        if not (len(file_hashes) == len(checkout_targets) == n):
+        if not (len(identifiers) == n):
             raise ValueError("Length mismatch between inputs")
 
         sources = [
-            SourceData(location=loc, file_hash=fh, checkout_target=ct)
-            for loc, fh, ct in zip(locations, file_hashes, checkout_targets)
+            SourceData.from_location(location=loc, identifier=id)
+            for loc, id in zip(locations, identifiers)
         ]
         return cls(sources)
 

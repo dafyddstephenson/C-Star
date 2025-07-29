@@ -5,7 +5,17 @@ from cstar.io.retriever import (
     RemoteTextFileRetriever,
     Retriever,
 )
-from cstar.io.source_data import SourceData, SourceDataCollection
+from cstar.io.source_data import (
+    LocalBinaryFileSource,
+    LocalSourceData,
+    LocalTextFileSource,
+    RemoteBinaryFileSource,
+    RemoteRepositorySource,
+    RemoteSourceData,
+    RemoteTextFileSource,
+    SourceData,
+    SourceDataCollection,
+)
 from cstar.io.staged_data import (
     StagedData,
     StagedDataCollection,
@@ -34,6 +44,13 @@ __all__ = [
     "Stager",
     "SourceData",
     "SourceDataCollection",
+    "RemoteBinaryFileSource",
+    "RemoteTextFileSource",
+    "RemoteSourceData",
+    "RemoteRepositorySource",
+    "LocalBinaryFileSource",
+    "LocalTextFileSource",
+    "LocalSourceData",
     "Retriever",
     "RemoteBinaryFileRetriever",
     "RemoteTextFileRetriever",

@@ -6,7 +6,14 @@ from pathlib import Path
 import requests
 
 from cstar.base.gitutils import _checkout, _clone
-from cstar.io import SourceData
+from cstar.io import (
+    LocalSourceData,
+    RemoteBinaryFileSource,
+    RemoteRepositorySource,
+    RemoteSourceData,
+    RemoteTextFileSource,
+    SourceData,
+)
 
 
 class Retriever(ABC):
@@ -40,7 +47,7 @@ class Retriever(ABC):
 
 
 class RemoteFileRetriever(Retriever, ABC):
-    def read(self, source: SourceData) -> bytes:
+    def read(self, source: RemoteSourceData) -> bytes:  # type: ignore[override]
         response = requests.get(source.location, allow_redirects=True)
         response.raise_for_status()
         data = response.content
@@ -48,12 +55,16 @@ class RemoteFileRetriever(Retriever, ABC):
         return data
 
     @abstractmethod
-    def _save(self, target_dir: Path, source: SourceData) -> Path:
+    def _save(self, target_dir: Path, source: SourceData) -> Path:  # type: ignore[override]
         pass
 
 
 class RemoteBinaryFileRetriever(RemoteFileRetriever):
-    def _save(self, target_dir: Path, source: SourceData) -> Path:
+    def _save(
+        self,
+        target_dir: Path,
+        source: RemoteBinaryFileSource,  # type: ignore[override]
+    ) -> Path:
         hash_obj = hashlib.sha256()
 
         target_path = target_dir / source.filename
@@ -82,7 +93,7 @@ class RemoteBinaryFileRetriever(RemoteFileRetriever):
 
 
 class RemoteTextFileRetriever(RemoteFileRetriever):
-    def _save(self, target_dir: Path, source: SourceData) -> Path:
+    def _save(self, target_dir: Path, source: RemoteTextFileSource) -> Path:  # type: ignore[override]
         data = self.read(source=source)
         target_path = target_dir / source.filename
         with open(target_path, "wb") as f:
@@ -91,21 +102,21 @@ class RemoteTextFileRetriever(RemoteFileRetriever):
 
 
 class LocalFileRetriever(Retriever):
-    def read(self, source: SourceData) -> bytes:
+    def read(self, source: LocalSourceData) -> bytes:  # type: ignore[override]
         with open(source.location, "rb") as f:
             return f.read()
 
-    def _save(self, target_dir: Path, source: SourceData) -> Path:
+    def _save(self, target_dir: Path, source: SourceData) -> Path:  # type: ignore[override]
         target_path = target_dir / source.filename
         shutil.copy2(src=Path(source.location).resolve(), dst=target_path)
         return target_path
 
 
 class RemoteRepositoryRetriever(Retriever):
-    def read(self, source: SourceData) -> bytes:
+    def read(self, source: RemoteRepositorySource) -> bytes:  # type: ignore[override]
         raise NotImplementedError("Cannot 'read' a remote repository to memory")
 
-    def _save(self, target_dir: Path, source: SourceData) -> Path:
+    def _save(self, target_dir: Path, source: RemoteRepositorySource) -> Path:  # type: ignore[override]
         _clone(
             source_repo=source.location,
             local_path=target_dir,
