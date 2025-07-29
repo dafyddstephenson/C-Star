@@ -55,7 +55,7 @@ class RemoteFileRetriever(Retriever, ABC):
         return data
 
     @abstractmethod
-    def _save(self, target_dir: Path, source: SourceData) -> Path:  # type: ignore[override]
+    def _save(self, target_dir: Path, source: RemoteSourceData) -> Path:  # type: ignore[override]
         pass
 
 
@@ -106,7 +106,7 @@ class LocalFileRetriever(Retriever):
         with open(source.location, "rb") as f:
             return f.read()
 
-    def _save(self, target_dir: Path, source: SourceData) -> Path:  # type: ignore[override]
+    def _save(self, target_dir: Path, source: LocalSourceData) -> Path:  # type: ignore[override]
         target_path = target_dir / source.filename
         shutil.copy2(src=Path(source.location).resolve(), dst=target_path)
         return target_path
